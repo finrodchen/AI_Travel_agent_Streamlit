@@ -1,0 +1,51 @@
+# Core AI/ML Libraries
+openai>=1.0.0
+langchain>=0.1.0
+langchain-openai>=0.1.0
+langchain-core>=0.1.0
+langchain-community>=0.0.29
+langchain-experimental>=0.0.56
+langgraph>=0.0.45
+
+# Environment and Configuration
+python-dotenv>=1.0.0
+
+# Web Search and APIs
+google-search-results>=2.4.2
+duckduckgo-search>=4.0.0
+requests>=2.31.0
+
+# Weather API
+pyowm>=3.3.0
+
+# YouTube Search
+youtube-search-python>=1.6.6
+
+# Jupyter Notebook Environment
+jupyter>=1.0.0
+notebook>=7.0.0
+ipython>=8.0.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Image Display (for LangGraph visualization)
+Pillow>=10.0.0
+
+# HTTP Client
+httpx>=0.24.0
+
+# JSON handling
+pydantic>=2.0.0
+
+# Additional utilities
+typing-extensions>=4.5.0
+asyncio>=3.4.3
+
+# Optional: For better performance
+aiohttp>=3.8.0
+
+# Development tools (optional)
+black>=23.0.0
+flake8>=6.0.0
