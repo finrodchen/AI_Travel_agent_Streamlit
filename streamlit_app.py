@@ -3,7 +3,6 @@ import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import SecretStr
 from langchain.tools import tool
 from langchain_community.utilities import OpenWeatherMapAPIWrapper, GoogleSerperAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchRun, YouTubeSearchTool
@@ -11,7 +10,6 @@ from langchain_core.tools import Tool
 from langchain_experimental.utilities import PythonREPL
 from langgraph.graph import MessagesState, StateGraph, END, START
 from langgraph.prebuilt import ToolNode, tools_condition
-import json
 
 # Page configuration
 st.set_page_config(
@@ -23,33 +21,6 @@ st.set_page_config(
 
 # Load environment variables
 load_dotenv()
-
-# Custom CSS for better styling
-st.markdown("""
-<style>
-    .main-header {
-        text-align: center;
-        padding: 2rem 0;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border-radius: 10px;
-        margin-bottom: 2rem;
-    }
-    .feature-box {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 0.5rem 0;
-        border-left: 4px solid #667eea;
-    }
-    .cost-breakdown {
-        background-color: #e8f4fd;
-        padding: 1rem;
-        border-radius: 8px;
-        border: 2px solid #1f77b4;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # Initialize session state
 if 'travel_agent' not in st.session_state:
@@ -84,8 +55,13 @@ def substraction(a: int, b: int) -> float:
 def get_weather(city: str) -> str:
     """Fetches the current weather of the city from OpenWeatherMap."""
     try:
-        weather = OpenWeatherMapAPIWrapper()
-        return weather.run(city)
+        weather_api_key = st.secrets.get("OPENWEATHERMAP_API_KEY") or os.getenv("OPENWEATHERMAP_API_KEY")
+        if weather_api_key:
+            os.environ["OPENWEATHERMAP_API_KEY"] = weather_api_key
+            weather = OpenWeatherMapAPIWrapper()
+            return weather.run(city)
+        else:
+            return f"Weather API key not available. Cannot get weather for {city}."
     except Exception as e:
         return f"Weather data unavailable for {city}. Error: {str(e)}"
 
@@ -93,10 +69,16 @@ def get_weather(city: str) -> str:
 def search_google(query: str) -> str:
     """Fetches details about attractions, restaurants, hotels, etc. from Google Serper API."""
     try:
-        search_serper = GoogleSerperAPIWrapper()
-        return search_serper.run(query)
+        serper_api_key = st.secrets.get("SERPER_API_KEY") or os.getenv("SERPER_API_KEY")
+        if serper_api_key:
+            os.environ["SERPER_API_KEY"] = serper_api_key
+            search_serper = GoogleSerperAPIWrapper()
+            return search_serper.run(query)
+        else:
+            # Fallback to duck search if serper not available
+            return search_duck(query)
     except Exception as e:
-        return f"Search unavailable. Error: {str(e)}"
+        return f"Google search unavailable, trying alternative search. Error: {str(e)}"
 
 @tool
 def search_duck(query: str) -> str:
@@ -127,23 +109,20 @@ repl_tool = Tool(
 def initialize_travel_agent():
     """Initialize the travel agent with all tools and configurations."""
     try:
-        # Check for required API keys
-        required_keys = ['OPENAI_API_KEY']
-        missing_keys = [key for key in required_keys if not os.getenv(key)]
+        # Get OpenAI API key from Streamlit secrets or environment
+        openai_api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
         
-        if missing_keys:
-            st.error(f"Missing API keys: {', '.join(missing_keys)}")
-            st.error("Please set up your API keys in the .env file")
+        if not openai_api_key:
+            st.error("❌ OpenAI API key not found. Please add it to Streamlit secrets.")
+            st.info("💡 Go to Settings → Secrets and add: OPENAI_API_KEY = \"your-key-here\"")
             return None
         
-        # Initialize OpenAI model
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not openai_api_key:
-            raise ValueError("OPENAI_API_KEY environment variable not set")
+        # Initialize OpenAI model - FIXED: Removed SecretStr
         llm = ChatOpenAI(
             model="gpt-4o",
             temperature=0,
-            api_key=SecretStr(openai_api_key)
+            max_tokens=2000,
+            api_key=openai_api_key  # Direct string, not SecretStr
         )
         
         # System prompt
@@ -216,165 +195,123 @@ def initialize_travel_agent():
         return react_graph
         
     except Exception as e:
-        st.error(f"Error initializing travel agent: {str(e)}")
+        st.error(f"❌ Error initializing travel agent: {str(e)}")
+        st.info("💡 Check your API keys and internet connection")
         return None
 
 def main():
     # Header
     st.markdown("""
-    <div class="main-header">
+    <div style='text-align: center; padding: 2rem 0; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px; margin-bottom: 2rem;'>
         <h1>🌍 AI Travel Agent & Expense Planner</h1>
         <p>Plan your perfect trip with real-time data and detailed cost calculations</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # Sidebar
-    with st.sidebar:
-        st.header("🔧 Setup")
+    # API Status Check
+    st.sidebar.header("📡 API Status")
+    
+    # Check API keys
+    openai_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    serper_key = st.secrets.get("SERPER_API_KEY") or os.getenv("SERPER_API_KEY")
+    weather_key = st.secrets.get("OPENWEATHERMAP_API_KEY") or os.getenv("OPENWEATHERMAP_API_KEY")
+    
+    if openai_key:
+        st.sidebar.success("✅ OpenAI API")
+    else:
+        st.sidebar.error("❌ OpenAI API Missing")
+        st.sidebar.info("Required for the app to work")
+    
+    if serper_key:
+        st.sidebar.success("✅ Serper API")
+    else:
+        st.sidebar.warning("⚠️ Serper API Missing")
+        st.sidebar.info("Will use DuckDuckGo as fallback")
         
-        # API Key Status
-        st.subheader("📡 API Status")
-        api_status = {}
-        api_keys = {
-            "OpenAI": "OPENAI_API_KEY",
-            "Serper": "SERPER_API_KEY", 
-            "Weather": "OPENWEATHERMAP_API_KEY"
-        }
-        
-        for name, key in api_keys.items():
-            if os.getenv(key):
-                st.success(f"✅ {name} API")
-                api_status[name] = True
-            else:
-                st.warning(f"⚠️ {name} API Missing")
-                api_status[name] = False
-        
-        # Features
-        st.subheader("🚀 Features")
-        features = [
-            "🌤️ Real-time Weather",
-            "🏨 Hotel Price Calculator", 
-            "💱 Currency Conversion",
-            "🎯 Attraction Finder",
-            "📅 Itinerary Generator",
-            "💰 Cost Breakdown",
-            "🎥 Travel Videos"
-        ]
-        
-        for feature in features:
-            st.markdown(f"<div class='feature-box'>{feature}</div>", unsafe_allow_html=True)
+    if weather_key:
+        st.sidebar.success("✅ Weather API")
+    else:
+        st.sidebar.warning("⚠️ Weather API Missing")
+        st.sidebar.info("Weather feature won't work")
     
     # Main content
-    col1, col2 = st.columns([2, 1])
+    st.header("💬 Travel Query")
     
-    with col1:
-        st.header("💬 Travel Query")
-        
-        # Pre-filled example queries
-        example_queries = {
-            "🏖️ Beach Vacation": """I want to visit Goa for 5 days in December.
+    # Example queries
+    example_queries = {
+        "🏖️ Beach Vacation": """I want to visit Goa for 5 days in December.
 My budget is 30,000 INR.
 Get current weather for Goa.
 Find hotels under 3,000 INR per night.
 I want to know about beaches, water sports, and nightlife.
 Calculate exact costs including food (500 INR per day).
 Show me travel videos about Goa.""",
-            
-            "🌍 International Trip": """I want to visit Thailand for 4 days.
+        
+        "🌍 International Trip": """I want to visit Thailand for 4 days.
 My budget is 800 USD.
 Convert all costs to Indian Rupees.
 Get current weather for Bangkok.
 Find budget hotels under 30 USD per night.
 Include street food and restaurant costs.
 Show temple entry fees and transportation costs.
-Calculate total trip cost in both USD and INR.""",
-            
-            "🏔️ Mountain Adventure": """Plan a 3-day trip to Manali.
-Budget: 15,000 INR total.
-Current weather in Manali?
-Hotels under 2,000 INR per night.
-Adventure activities and costs.
-Local food expenses.
-YouTube videos about Manali travel."""
-        }
+Calculate total trip cost in both USD and INR."""
+    }
+    
+    selected_example = st.selectbox("🎯 Choose Example Query:", 
+                                   ["Custom Query"] + list(example_queries.keys()))
+    
+    if selected_example != "Custom Query":
+        query = st.text_area("✍️ Your Travel Query:", 
+                            value=example_queries[selected_example],
+                            height=200)
+    else:
+        query = st.text_area("✍️ Your Travel Query:", 
+                            placeholder="E.g., I want to visit Paris for 7 days...",
+                            height=200)
+    
+    # Process button
+    if st.button("🚀 Plan My Trip", type="primary", use_container_width=True):
+        if not query.strip():
+            st.warning("Please enter your travel query!")
+            return
         
-        selected_example = st.selectbox("🎯 Choose Example Query:", 
-                                       ["Custom Query"] + list(example_queries.keys()))
+        if not openai_key:
+            st.error("❌ OpenAI API key is required. Please add it to Streamlit secrets.")
+            return
         
-        if selected_example != "Custom Query":
-            query = st.text_area("✍️ Your Travel Query:", 
-                                value=example_queries[selected_example],
-                                height=200)
-        else:
-            query = st.text_area("✍️ Your Travel Query:", 
-                                placeholder="E.g., I want to visit Paris for 7 days...",
-                                height=200)
+        # Initialize travel agent
+        if st.session_state.travel_agent is None:
+            with st.spinner("🔧 Initializing AI Travel Agent..."):
+                st.session_state.travel_agent = initialize_travel_agent()
         
-        # Process button
-        if st.button("🚀 Plan My Trip", type="primary", use_container_width=True):
-            if not query.strip():
-                st.warning("Please enter your travel query!")
-                return
-            
-            # Check if travel agent is initialized
-            if st.session_state.travel_agent is None:
-                with st.spinner("🔧 Initializing AI Travel Agent..."):
-                    st.session_state.travel_agent = initialize_travel_agent()
-            
-            if st.session_state.travel_agent is None:
-                st.error("❌ Failed to initialize travel agent. Please check your API keys.")
-                return
-            
-            # Process the query
-            with st.spinner("🤖 Planning your perfect trip..."):
-                try:
-                    response = st.session_state.travel_agent.invoke({
-                        "messages": [HumanMessage(query)]
-                    })
+        if st.session_state.travel_agent is None:
+            st.error("❌ Failed to initialize travel agent. Please check your API keys.")
+            return
+        
+        # Process the query
+        with st.spinner("🤖 Planning your perfect trip..."):
+            try:
+                response = st.session_state.travel_agent.invoke({
+                    "messages": [HumanMessage(query)]
+                })
+                
+                # Display the response
+                if response and "messages" in response:
+                    final_response = response["messages"][-1].content
+                    st.success("✅ Your travel plan is ready!")
+                    st.markdown(final_response)
                     
-                    # Display the response
-                    if response and "messages" in response:
-                        final_response = response["messages"][-1].content
-                        st.success("✅ Your travel plan is ready!")
-                        st.markdown(final_response)
-                        
-                        # Add to chat history
-                        st.session_state.chat_history.append({
-                            "query": query,
-                            "response": final_response
-                        })
-                    else:
-                        st.error("❌ No response received. Please try again.")
-                        
-                except Exception as e:
-                    st.error(f"❌ Error processing your request: {str(e)}")
-    
-    with col2:
-        st.header("📊 Quick Stats")
-        
-        # Display some quick info
-        stats_container = st.container()
-        with stats_container:
-            st.metric("🎯 Queries Processed", len(st.session_state.chat_history))
-            st.metric("🔧 Tools Available", "9")
-            st.metric("🌍 Destinations", "Any City Worldwide")
-        
-        # Recent queries
-        if st.session_state.chat_history:
-            st.subheader("📝 Recent Queries")
-            for i, chat in enumerate(reversed(st.session_state.chat_history[-3:])):
-                with st.expander(f"Query {len(st.session_state.chat_history) - i}"):
-                    st.text(chat["query"][:100] + "..." if len(chat["query"]) > 100 else chat["query"])
-    
-    # Footer
-    st.markdown("---")
-    st.markdown("""
-    <div style='text-align: center; color: gray;'>
-        <p>🌟 Made with ❤️ using LangChain, LangGraph & Streamlit | 
-        🔗 <a href='https://github.com/yourusername/ai-travel-agent'>View on GitHub</a></p>
-        <p>Created by Ashu Mishra - linkedin: <a href='https://www.linkedin.com/in/ashumish/'>https://www.linkedin.com/in/ashumish/</a></p>
-    </div>
-    """, unsafe_allow_html=True)
+                    # Add to chat history
+                    st.session_state.chat_history.append({
+                        "query": query,
+                        "response": final_response
+                    })
+                else:
+                    st.error("❌ No response received. Please try again.")
+                    
+            except Exception as e:
+                st.error(f"❌ Error processing your request: {str(e)}")
+                st.info("💡 Try refreshing the page or check your internet connection")
 
 if __name__ == "__main__":
     main()
