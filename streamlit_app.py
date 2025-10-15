@@ -11,24 +11,24 @@ from langchain_experimental.utilities import PythonREPL
 from langgraph.graph import MessagesState, StateGraph, END, START
 from langgraph.prebuilt import ToolNode, tools_condition
 
-# Page configuration
+# 頁面設定
 st.set_page_config(
-    page_title="🌍 AI Travel Agent",
+    page_title="🌍 AI 旅遊規劃師",
     page_icon="✈️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Load environment variables
+# 載入環境變數
 load_dotenv()
 
-# Initialize session state
+# 初始化 Session State
 if 'travel_agent' not in st.session_state:
     st.session_state.travel_agent = None
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 
-# Custom Tools
+# 自訂工具 (工具名稱和描述保持英文，以利 LLM 準確調用)
 @tool
 def addition(a: int, b: int) -> int:
     """Add two integers."""
@@ -107,82 +107,81 @@ repl_tool = Tool(
 )
 
 def initialize_travel_agent():
-    """Initialize the travel agent with all tools and configurations."""
+    """初始化旅遊規劃師，包含所有工具和組態。"""
     try:
-        # Get OpenAI API key from Streamlit secrets or environment
+        # 從 Streamlit secrets 或環境變數取得 OpenAI API key
         openai_api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
         
         if not openai_api_key:
-            st.error("❌ OpenAI API key not found. Please add it to Streamlit secrets.")
-            st.info("💡 Go to Settings → Secrets and add: OPENAI_API_KEY = \"your-key-here\"")
+            st.error("❌ 找不到 OpenAI API 密鑰。請將其加入 Streamlit secrets。")
+            st.info("💡 前往 Settings → Secrets 並新增：OPENAI_API_KEY = \"your-key-here\"")
             return None
         
-        # Initialize OpenAI model - FIXED: Removed SecretStr
+        # 初始化 OpenAI 模型
         llm = ChatOpenAI(
             model="gpt-4o",
             temperature=0,
             max_tokens=2000,
-            api_key=openai_api_key  # Direct string, not SecretStr
+            api_key=openai_api_key
         )
         
-        # System prompt
+        # 系統提示 (System Prompt) - **已中文化**
         system_prompt = SystemMessage("""
-        You are a professional AI Travel Agent. You MUST follow this EXACT process for every travel query:
+        您是一位專業的 AI 旅遊規劃師。您必須對每個旅遊查詢遵循以下**精確的**流程：
 
-        STEP 1: ALWAYS call get_weather tool first for the destination city
+        步驟 1：**總是**先調用 `get_weather` 工具查詢目的地的天氣。
 
-        STEP 2: ALWAYS call search_google or search_duck to find:
-           - Hotels with specific prices per night
-           - Top attractions with entry fees
-           - Restaurants with price ranges
-           - Transportation options with costs
-           - CURRENCY CONVERSION: If user needs different currency, search for:
-             "current exchange rate [from_currency] to [to_currency] today"
+        步驟 2：**總是**調用 `search_google` 或 `search_duck` 來尋找：
+            - 飯店及每晚特定價格
+            - 頂級景點及門票費用
+            - 餐廳及價格範圍
+            - 交通選項及費用
+            - **貨幣換算**：如果使用者需要不同貨幣，請搜尋："current exchange rate [from_currency] to [to_currency] today" (今日 [來源貨幣] 兌 [目標貨幣] 匯率)。
 
-        STEP 3: ALWAYS use arithmetic tools (addition, multiply) to calculate:
-           - Hotel cost = daily_rate × number_of_days
-           - Total food cost = daily_food_budget × number_of_days
-           - Total attraction costs = sum of all entry fees
-           - Currency conversion = amount × exchange_rate (from search)
-           - Grand total = hotel + food + attractions + transport
+        步驟 3：**總是**使用算術工具 (`addition`, `multiply`) 計算：
+            - 飯店費用 = 每日價格 × 天數
+            - 總食物費用 = 每日食物預算 × 天數
+            - 總景點費用 = 所有門票費用的總和
+            - 貨幣換算 = 金額 × 匯率（從搜尋結果取得）
+            - 總計 = 飯店 + 食物 + 景點 + 交通
 
-        STEP 4: ALWAYS call youtube_search for relevant travel videos
+        步驟 4：**總是**調用 `Youtube` 查詢相關的旅遊影片。
 
-        STEP 5: Create detailed day-by-day itinerary with REAL costs from your searches
+        步驟 5：使用您搜尋到的**真實費用**創建詳細的逐日行程。
 
-        MANDATORY RULES:
-        - For currency conversion: SEARCH for current exchange rates, don't guess
-        - Use ACTUAL data from tool calls, never make up prices
-        - Show detailed cost breakdown with calculations
-        - Include weather information from the weather tool
-        - Provide YouTube video links from your search
+        **強制規則：**
+        - 貨幣換算：**必須**搜尋當前匯率，不可猜測。
+        - 使用來自工具調用的**實際**數據，絕不編造價格。
+        - 顯示包含計算細節的詳細費用明細。
+        - 包含天氣工具提供的天氣資訊。
+        - 提供來自您搜尋的 YouTube 影片連結。
 
-        FORMAT your response as:
-        ## 🌤️ Weather Information
-        ## 💱 Currency Conversion  
-        ## 🏛️ Attractions & Activities
-        ## 🏨 Hotels & Accommodation
-        ## 📅 Daily Itinerary
-        ## 💰 Cost Breakdown
-        ## 🎥 YouTube Resources
-        ## 📋 Summary
+        您的回覆格式必須是：
+        ## 🌤️ 天氣資訊
+        ## 💱 貨幣換算
+        ## 🏛️ 景點與活動
+        ## 🏨 住宿與飯店
+        ## 📅 每日行程
+        ## 💰 費用明細
+        ## 🎥 YouTube 資源
+        ## 📋 總結
         """)
         
-        # Create tools list
+        # 創建工具列表
         tools = [addition, multiply, division, substraction, get_weather, 
-                search_google, search_duck, repl_tool, youtube_search]
+                 search_google, search_duck, repl_tool, youtube_search]
         
-        # Bind tools to LLM
+        # 將工具綁定到 LLM
         llm_with_tools = llm.bind_tools(tools)
         
-        # Create graph function
+        # 創建圖函數
         def function_1(state: MessagesState):
             user_question = state["messages"]
             input_question = [system_prompt] + user_question
             response = llm_with_tools.invoke(input_question)
             return {"messages": [response]}
         
-        # Build the graph
+        # 構建圖 (Graph)
         builder = StateGraph(MessagesState)
         builder.add_node("llm_decision_step", function_1)
         builder.add_node("tools", ToolNode(tools))
@@ -190,28 +189,28 @@ def initialize_travel_agent():
         builder.add_conditional_edges("llm_decision_step", tools_condition)
         builder.add_edge("tools", "llm_decision_step")
         
-        # Compile the graph
+        # 編譯圖
         react_graph = builder.compile()
         return react_graph
         
     except Exception as e:
-        st.error(f"❌ Error initializing travel agent: {str(e)}")
-        st.info("💡 Check your API keys and internet connection")
+        st.error(f"❌ 初始化旅遊規劃師時發生錯誤: {str(e)}")
+        st.info("💡 請檢查您的 API 密鑰和網路連線")
         return None
 
 def main():
-    # Header
+    # 標頭 (Header) - **已中文化**
     st.markdown("""
     <div style='text-align: center; padding: 2rem 0; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px; margin-bottom: 2rem;'>
-        <h1>🌍 AI Travel Agent & Expense Planner</h1>
-        <p>Plan your perfect trip with real-time data and detailed cost calculations</p>
+        <h1>🌍 AI 旅遊規劃師與費用預算助手</h1>
+        <p>利用即時數據和詳細費用計算，規劃您的完美旅程</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # API Status Check
-    st.sidebar.header("📡 API Status")
+    # API 狀態檢查 (Sidebar) - **已中文化**
+    st.sidebar.header("📡 API 狀態")
     
-    # Check API keys
+    # 檢查 API 密鑰
     openai_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
     serper_key = st.secrets.get("SERPER_API_KEY") or os.getenv("SERPER_API_KEY")
     weather_key = st.secrets.get("OPENWEATHERMAP_API_KEY") or os.getenv("OPENWEATHERMAP_API_KEY")
@@ -219,99 +218,99 @@ def main():
     if openai_key:
         st.sidebar.success("✅ OpenAI API")
     else:
-        st.sidebar.error("❌ OpenAI API Missing")
-        st.sidebar.info("Required for the app to work")
+        st.sidebar.error("❌ OpenAI API 密鑰缺失")
+        st.sidebar.info("應用程式運作必需")
     
     if serper_key:
         st.sidebar.success("✅ Serper API")
     else:
-        st.sidebar.warning("⚠️ Serper API Missing")
-        st.sidebar.info("Will use DuckDuckGo as fallback")
+        st.sidebar.warning("⚠️ Serper API 密鑰缺失")
+        st.sidebar.info("將使用 DuckDuckGo 作為備選")
         
     if weather_key:
-        st.sidebar.success("✅ Weather API")
+        st.sidebar.success("✅ 天氣 API")
     else:
-        st.sidebar.warning("⚠️ Weather API Missing")
-        st.sidebar.info("Weather feature won't work")
+        st.sidebar.warning("⚠️ 天氣 API 密鑰缺失")
+        st.sidebar.info("天氣功能將無法運作")
     
-    # Main content
-    st.header("💬 Travel Query")
+    # 主要內容 - **已中文化**
+    st.header("💬 旅遊查詢")
     
-    # Example queries
+    # 範例查詢 - **已中文化**
     example_queries = {
-        "🏖️ Beach Vacation": """I want to visit Goa for 5 days in December.
-My budget is 30,000 INR.
-Get current weather for Goa.
-Find hotels under 3,000 INR per night.
-I want to know about beaches, water sports, and nightlife.
-Calculate exact costs including food (500 INR per day).
-Show me travel videos about Goa.""",
+        "🏖️ 海灘度假": """我計畫在 12 月去印度果阿 (Goa) 玩 5 天。
+我的預算是 30,000 印度盧比 (INR)。
+請查詢果阿的當前天氣。
+尋找每晚低於 3,000 印度盧比的飯店。
+我想知道海灘、水上活動和夜生活。
+請計算精確的總費用，包括食物 (每天 500 印度盧比)。
+請提供關於果阿的旅遊影片。""",
         
-        "🌍 International Trip": """I want to visit Thailand for 4 days.
-My budget is 800 USD.
-Convert all costs to Indian Rupees.
-Get current weather for Bangkok.
-Find budget hotels under 30 USD per night.
-Include street food and restaurant costs.
-Show temple entry fees and transportation costs.
-Calculate total trip cost in both USD and INR."""
+        "🌍 國際旅行": """我想去泰國玩 4 天。
+我的預算是 800 美元 (USD)。
+請將所有費用換算成新台幣 (TWD)。
+查詢曼谷的當前天氣。
+尋找每晚低於 30 美元的平價飯店。
+包含街頭小吃和餐廳的費用。
+提供寺廟門票和交通費用。
+計算以美元 (USD) 和新台幣 (TWD) 計價的總旅行費用。"""
     }
     
-    selected_example = st.selectbox("🎯 Choose Example Query:", 
-                                   ["Custom Query"] + list(example_queries.keys()))
+    selected_example = st.selectbox("🎯 選擇範例查詢:", 
+                                    ["自訂查詢"] + list(example_queries.keys()))
     
-    if selected_example != "Custom Query":
-        query = st.text_area("✍️ Your Travel Query:", 
-                            value=example_queries[selected_example],
-                            height=200)
+    if selected_example != "自訂查詢":
+        query = st.text_area("✍️ 您的旅遊查詢:", 
+                             value=example_queries[selected_example],
+                             height=200)
     else:
-        query = st.text_area("✍️ Your Travel Query:", 
-                            placeholder="E.g., I want to visit Paris for 7 days...",
-                            height=200)
+        query = st.text_area("✍️ 您的旅遊查詢:", 
+                             placeholder="例如：我想在 5 月去巴黎玩 7 天...",
+                             height=200)
     
-    # Process button
-    if st.button("🚀 Plan My Trip", type="primary", use_container_width=True):
+    # 處理按鈕 - **已中文化**
+    if st.button("🚀 規劃我的行程", type="primary", use_container_width=True):
         if not query.strip():
-            st.warning("Please enter your travel query!")
+            st.warning("請輸入您的旅遊查詢！")
             return
         
         if not openai_key:
-            st.error("❌ OpenAI API key is required. Please add it to Streamlit secrets.")
+            st.error("❌ 需要 OpenAI API 密鑰。請將其加入 Streamlit secrets。")
             return
         
-        # Initialize travel agent
+        # 初始化旅遊規劃師
         if st.session_state.travel_agent is None:
-            with st.spinner("🔧 Initializing AI Travel Agent..."):
+            with st.spinner("🔧 正在初始化 AI 旅遊規劃師..."):
                 st.session_state.travel_agent = initialize_travel_agent()
         
         if st.session_state.travel_agent is None:
-            st.error("❌ Failed to initialize travel agent. Please check your API keys.")
+            st.error("❌ 初始化旅遊規劃師失敗。請檢查您的 API 密鑰。")
             return
         
-        # Process the query
-        with st.spinner("🤖 Planning your perfect trip..."):
+        # 處理查詢
+        with st.spinner("🤖 正在規劃您的完美旅程..."):
             try:
                 response = st.session_state.travel_agent.invoke({
                     "messages": [HumanMessage(query)]
                 })
                 
-                # Display the response
+                # 顯示回覆
                 if response and "messages" in response:
                     final_response = response["messages"][-1].content
-                    st.success("✅ Your travel plan is ready!")
+                    st.success("✅ 您的旅遊計畫已準備就緒！")
                     st.markdown(final_response)
                     
-                    # Add to chat history
-                    st.session_state.chat_history.append({
-                        "query": query,
-                        "response": final_response
-                    })
+                    # 加入聊天紀錄 (如果需要顯示歷史紀錄，您可以取消註釋此部分)
+                    # st.session_state.chat_history.append({
+                    #     "query": query,
+                    #     "response": final_response
+                    # })
                 else:
-                    st.error("❌ No response received. Please try again.")
+                    st.error("❌ 未收到回覆。請再試一次。")
                     
             except Exception as e:
-                st.error(f"❌ Error processing your request: {str(e)}")
-                st.info("💡 Try refreshing the page or check your internet connection")
+                st.error(f"❌ 處理您的請求時發生錯誤: {str(e)}")
+                st.info("💡 嘗試重新整理頁面或檢查您的網路連線")
 
 if __name__ == "__main__":
     main()
